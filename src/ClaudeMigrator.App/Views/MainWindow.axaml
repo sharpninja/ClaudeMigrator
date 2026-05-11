@@ -1,0 +1,190 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ClaudeMigrator.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="ClaudeMigrator.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="1600"
+        Height="1100"
+        MinWidth="1180"
+        MinHeight="820"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="ClaudeMigrator">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24" Spacing="18" MaxWidth="1520">
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="title" Text="ClaudeMigrator" />
+                    <TextBlock Text="{Binding LaunchSummary}" TextWrapping="Wrap" Opacity="0.88" />
+                    <TextBlock Text="{Binding DebugLogPath}" TextWrapping="Wrap" FontSize="12" Opacity="0.68" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Start Migration" Command="{Binding StartMigrationCommand}" />
+                        <Button Content="Build Source Bundle" Command="{Binding BuildSourceBundleCommand}" />
+                        <Button Content="Restore Local Bundle" Command="{Binding RestoreLocalBundleCommand}" />
+                        <Button Content="Continue Step" Command="{Binding ContinueCurrentStepCommand}" IsVisible="{Binding HasManualAction}" />
+                        <Button Content="Close Browsers" Command="{Binding CloseBrowsersCommand}" />
+                        <Button Content="Open Logs Folder" Command="{Binding OpenLogsFolderCommand}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <ProgressBar Minimum="0" Maximum="100" Height="12" Value="{Binding OverallProgress}" />
+                        <TextBlock Text="{Binding OverallProgressText}" FontSize="12" Opacity="0.72" />
+                        <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Border Classes="card" IsVisible="{Binding HasManualAction}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding ManualActionLabel}" Classes="section" />
+                            <TextBlock Text="{Binding ManualActionMessage}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Source" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <RadioButton Content="Export ZIP" GroupName="SourceMode" IsChecked="{Binding IsZipSourceMode, Mode=TwoWay}" />
+                        <RadioButton Content="Local snapshot" GroupName="SourceMode" IsChecked="{Binding IsLocalSourceMode, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Source ZIP" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding SelectedExportZip, Mode=TwoWay}" PlaceholderText="Path to Claude export ZIP" />
+                        <Button Grid.Row="0" Grid.Column="2" Content="Browse" Click="BrowseExportZip_Click" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Source home" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SourceHome, Mode=TwoWay}" PlaceholderText="Path to the export account home folder" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="Browse" Click="BrowseSourceHome_Click" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Repo root" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SourceRepoRoot, Mode=TwoWay}" PlaceholderText="Optional repo root for local bundle metadata" />
+                        <Button Grid.Row="2" Grid.Column="2" Content="Browse" Click="BrowseSourceRepoRoot_Click" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Connection" />
+                        <ComboBox Grid.Row="3" Grid.Column="1"
+                                  ItemsSource="{Binding ConnectionMethods}"
+                                  SelectedItem="{Binding ConnectionMethod, Mode=TwoWay}" />
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <CheckBox Content="Claude" IsChecked="{Binding TargetClaude, Mode=TwoWay}" />
+                        <CheckBox Content="Codex" IsChecked="{Binding TargetCodex, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Remote Machines" />
+                    <TextBlock Text="Build and maintain the remote source list here. Use ssh or wsman for local-only export runs." TextWrapping="Wrap" Opacity="0.8" />
+
+                    <Grid ColumnDefinitions="2.1*,2.4*" ColumnSpacing="14">
+                        <Border Grid.Column="0" Background="#111217" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="12" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Configured machines" FontWeight="SemiBold" />
+                                <ListBox Height="260"
+                                         ItemsSource="{Binding RemoteMachines}"
+                                         SelectedItem="{Binding SelectedRemoteMachine, Mode=TwoWay}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:RemoteMachineViewModel">
+                                            <Border Padding="8" Margin="0,0,0,8" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="10">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="{Binding Summary}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding ConnectionMethod}" FontSize="12" Opacity="0.72" />
+                                                    <TextBlock Text="{Binding RepoRoot}" FontSize="12" Opacity="0.56" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Refresh" Command="{Binding RefreshRemoteMachinesCommand}" />
+                                    <Button Content="Copy Command" Command="{Binding CopyRemoteExportCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Background="#111217" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="12" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Edit machine" FontWeight="SemiBold" />
+                                <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Name" />
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding RemoteMachineName, Mode=TwoWay}" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Host" />
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding RemoteMachineHost, Mode=TwoWay}" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Method" />
+                                    <ComboBox Grid.Row="2" Grid.Column="1"
+                                              ItemsSource="{Binding ConnectionMethods}"
+                                              SelectedItem="{Binding RemoteMachineMethod, Mode=TwoWay}" />
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="User" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding RemoteMachineUser, Mode=TwoWay}" />
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Repo root" />
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding RemoteMachineRepoRoot, Mode=TwoWay}" />
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Port" />
+                                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding RemoteMachinePort, Mode=TwoWay}" />
+                                </Grid>
+
+                                <TextBox Text="{Binding RemoteMachineNotes, Mode=TwoWay}" PlaceholderText="Notes" AcceptsReturn="True" Height="90" TextWrapping="Wrap" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Save" Command="{Binding SaveRemoteMachineCommand}" />
+                                    <Button Content="Remove" Command="{Binding RemoveRemoteMachineCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+                <Border Classes="card" Grid.Column="0">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="section" Text="Step Progress" />
+                        <ListBox Height="340" ItemsSource="{Binding Steps}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:StepViewModel">
+                                    <Border Padding="10" Margin="0,0,0,10" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="10">
+                                        <StackPanel Spacing="6">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Grid.Column="0" Text="{Binding Title}" FontWeight="SemiBold" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="12" Opacity="0.7" />
+                                            </Grid>
+                                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Opacity="0.8" />
+                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" Height="10" />
+                                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" FontSize="12" Opacity="0.72" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card" Grid.Column="1">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="section" Text="Live Log" />
+                        <ListBox Height="340" ItemsSource="{Binding LogLines}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas, DejaVu Sans Mono, monospace" FontSize="12" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
