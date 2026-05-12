@@ -99,7 +99,10 @@ function Resolve-SigningCertificate {
 
     if (-not [string]::IsNullOrWhiteSpace($CertificateBase64)) {
         Write-Host "Importing supplied PFX into CurrentUser\My"
-        $bytes = [System.Convert]::FromBase64String($CertificateBase64)
+        # Strip any whitespace (newlines, spaces, tabs) so secrets piped in via
+        # gh secret set/echo do not break Base64 decoding.
+        $cleanBase64 = ($CertificateBase64 -replace '\s+','')
+        $bytes = [System.Convert]::FromBase64String($cleanBase64)
         $tempPfx = Join-Path $env:TEMP "claudemigrator-signing-$([guid]::NewGuid()).pfx"
         try {
             [System.IO.File]::WriteAllBytes($tempPfx, $bytes)
