@@ -1,0 +1,8 @@
+name: Test SelfHosted
+on:
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: [self-hosted, Windows, X64, claudemigrator]
+    steps:
+      - run: echo "hello from $env:RUNNER_NAME"
