@@ -23,7 +23,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var paths = new AppPaths(AppContext.BaseDirectory).Ensure();
+            var paths = new AppPaths(ResolveRuntimeRoot()).Ensure();
             _controller = new MigrationController(paths);
             _viewModel = new MainWindowViewModel(_controller);
             desktop.Exit += OnDesktopExit;
@@ -34,6 +34,28 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static string ResolveRuntimeRoot()
+    {
+        // AppContext.BaseDirectory is read-only inside an MSIX install folder.
+        // Always store runtime artifacts under the user's LocalAppData.
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localAppData))
+            {
+                var root = System.IO.Path.Combine(localAppData, "ClaudeMigrator");
+                System.IO.Directory.CreateDirectory(root);
+                return root;
+            }
+        }
+        catch
+        {
+            // Fall through to base directory if LocalAppData is unavailable.
+        }
+
+        return AppContext.BaseDirectory;
     }
 
     private void OnDesktopExit(object? sender, ControlledApplicationLifetimeExitEventArgs e)
