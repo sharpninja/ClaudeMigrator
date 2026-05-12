@@ -1,7 +1,9 @@
-using ClaudeMigrator.Core.Migration;
-using ClaudeMigrator.Core.Models;
-using ClaudeMigrator.Core.Paths;
+using System.Collections.Generic;
+using System.Linq;
 using ClaudeMigrator.App.ViewModels;
+using ClaudeMigrator.App.ViewModels.Wizards;
+using ClaudeMigrator.Core.Migration;
+using ClaudeMigrator.Core.Paths;
 using ClaudeMigrator.Tests.TestSupport;
 
 namespace ClaudeMigrator.Tests;
@@ -9,113 +11,104 @@ namespace ClaudeMigrator.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
-    public void ViewModelDefaultsExposeSourceControlsAndRemoteMachineEditor()
+    public void StartsOnHomeView()
     {
         using var workspace = new TestWorkspace();
         using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
-        var viewModel = new MainWindowViewModel(controller);
+        var vm = new MainWindowViewModel(controller);
 
-        Assert.Contains("ssh", viewModel.ConnectionMethods, StringComparer.OrdinalIgnoreCase);
-        Assert.Contains("wsman", viewModel.ConnectionMethods, StringComparer.OrdinalIgnoreCase);
-        Assert.True(viewModel.TargetClaude);
-        Assert.True(viewModel.TargetCodex);
-        Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), viewModel.SourceHome);
-        Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), viewModel.DestinationHome);
-        Assert.Equal(Environment.MachineName, viewModel.SourceMachineName);
-        Assert.Equal(Environment.MachineName, viewModel.SourceHost);
-        Assert.Equal(Environment.UserName, viewModel.SourceUser);
-        Assert.Equal(string.Empty, viewModel.SourceAccount);
-        Assert.Equal(string.Empty, viewModel.TargetAccount);
+        Assert.True(vm.IsOnHome);
+        Assert.IsType<HomeViewModel>(vm.CurrentView);
     }
 
     [Fact]
-    public void ViewModelCanOpenLogsAndSessionsFolders()
+    public void SelectingWebRecreationWorkflowSwitchesToWebWizard()
     {
         using var workspace = new TestWorkspace();
         using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
-        var openedFolders = new List<string>();
-        var viewModel = new MainWindowViewModel(controller, openedFolders.Add);
+        var vm = new MainWindowViewModel(controller);
 
-        viewModel.OpenLogsFolderCommand.Execute(null);
-        viewModel.OpenSessionsFolderCommand.Execute(null);
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.WebRecreationWorkflowId);
 
-        Assert.Collection(
-            openedFolders,
-            path => Assert.Equal(controller.Paths.LogsDir, path),
-            path => Assert.Equal(controller.Paths.SessionsDir, path));
+        Assert.True(vm.IsOnWizard);
+        Assert.IsType<WebRecreationWizardViewModel>(vm.CurrentView);
     }
 
     [Fact]
-    public void ViewModelCanSaveAndRemoveRemoteMachines()
+    public void SelectingCoworkWorkflowSwitchesToCoworkWizard()
     {
         using var workspace = new TestWorkspace();
         using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
-        var viewModel = new MainWindowViewModel(controller);
+        var vm = new MainWindowViewModel(controller);
 
-        viewModel.RemoteMachineName = "Lab Box";
-        viewModel.RemoteMachineHost = "lab.example.com";
-        viewModel.RemoteMachineMethod = "wsman";
-        viewModel.RemoteMachineUser = "kingd";
-        viewModel.RemoteMachineRepoRoot = @"F:\GitHub\ClaudeMigrator";
-        viewModel.RemoteMachinePort = "5985";
-        viewModel.RemoteMachineNotes = "Primary remote source";
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.CoworkSessionsWorkflowId);
 
-        viewModel.SaveRemoteMachineCommand.Execute(null);
-
-        Assert.Single(viewModel.RemoteMachines);
-        Assert.NotNull(viewModel.SelectedRemoteMachine);
-        Assert.Equal("lab-box", viewModel.SelectedRemoteMachine!.MachineId);
-        Assert.Equal("lab.example.com", viewModel.SelectedRemoteMachine.Host);
-        Assert.Equal("wsman", viewModel.SelectedRemoteMachine.ConnectionMethod);
-        Assert.Single(controller.LoadRemoteMachines());
-
-        viewModel.RemoveRemoteMachineCommand.Execute(null);
-
-        Assert.Empty(viewModel.RemoteMachines);
-        Assert.Empty(controller.LoadRemoteMachines());
-        Assert.Null(viewModel.SelectedRemoteMachine);
-        Assert.Equal(string.Empty, viewModel.RemoteMachineName);
-        Assert.Equal(string.Empty, viewModel.RemoteMachineHost);
+        Assert.IsType<CoworkSessionsWizardViewModel>(vm.CurrentView);
     }
 
     [Fact]
-    public void ViewModelNormalizesPathSelections()
+    public void SelectingLocalBundleWorkflowSwitchesToLocalBundleWizard()
     {
         using var workspace = new TestWorkspace();
         using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
-        var viewModel = new MainWindowViewModel(controller);
+        var vm = new MainWindowViewModel(controller);
 
-        var selectedExport = Path.Combine(workspace.Root, "export.zip");
-        File.WriteAllText(selectedExport, "zip", System.Text.Encoding.UTF8);
-        viewModel.SetSelectedExportZipPath(selectedExport);
-        viewModel.SetSourceHomePath(workspace.Root);
-        viewModel.SetDestinationHomePath(workspace.Root);
-        viewModel.SetSourceRepoRootPath(workspace.Root);
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.LocalBundleWorkflowId);
 
-        Assert.Equal(Path.GetFullPath(selectedExport), viewModel.SelectedExportZip);
-        Assert.Equal(Path.GetFullPath(selectedExport), controller.SelectedExportZip);
-        Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.SourceHome);
-        Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.DestinationHome);
-        Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.SourceRepoRoot);
+        Assert.IsType<LocalBundleWizardViewModel>(vm.CurrentView);
     }
 
     [Fact]
-    public void ViewModelSwitchesSourceModesAndUpdatesController()
+    public void SelectingRemoteBundleWorkflowSwitchesToRemoteBundleWizard()
     {
         using var workspace = new TestWorkspace();
         using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
-        var viewModel = new MainWindowViewModel(controller);
+        var vm = new MainWindowViewModel(controller);
 
-        viewModel.IsLocalSourceMode = true;
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.RemoteBundleWorkflowId);
 
-        Assert.True(viewModel.IsLocalSourceMode);
-        Assert.False(viewModel.IsZipSourceMode);
-        Assert.Equal(SourceMode.LocalSnapshot, controller.SourceMode);
+        Assert.IsType<RemoteBundleWizardViewModel>(vm.CurrentView);
+    }
 
-        viewModel.IsZipSourceMode = true;
+    [Fact]
+    public void CancellingWizardReturnsToHome()
+    {
+        using var workspace = new TestWorkspace();
+        using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
+        var vm = new MainWindowViewModel(controller);
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.RemoteBundleWorkflowId);
+        var wizard = (WizardViewModelBase)vm.CurrentView!;
 
-        Assert.True(viewModel.IsZipSourceMode);
-        Assert.False(viewModel.IsLocalSourceMode);
-        Assert.Equal(SourceMode.Zip, controller.SourceMode);
+        wizard.Cancel();
+
+        Assert.True(vm.IsOnHome);
+    }
+
+    [Fact]
+    public void NavigateHomeFromAnyViewReturnsHome()
+    {
+        using var workspace = new TestWorkspace();
+        using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
+        var vm = new MainWindowViewModel(controller);
+        ((HomeViewModel)vm.CurrentView!).SelectWorkflowCommand.Execute(HomeViewModel.LocalBundleWorkflowId);
+
+        vm.NavigateHomeCommand.Execute(null);
+
+        Assert.True(vm.IsOnHome);
+    }
+
+    [Fact]
+    public void OpenLogsAndSessionsAreReachableFromHome()
+    {
+        using var workspace = new TestWorkspace();
+        using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
+        var opened = new List<string>();
+        var vm = new MainWindowViewModel(controller, opened.Add);
+        var home = (HomeViewModel)vm.CurrentView!;
+
+        home.OpenLogsCommand.Execute(null);
+        home.OpenSessionsCommand.Execute(null);
+
+        Assert.Equal(new[] { controller.Paths.LogsDir, controller.Paths.SessionsDir }, opened.ToArray());
     }
 }

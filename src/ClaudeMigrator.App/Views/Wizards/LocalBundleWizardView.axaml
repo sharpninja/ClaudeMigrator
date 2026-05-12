@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ClaudeMigrator.App.ViewModels"
+             xmlns:wiz="using:ClaudeMigrator.App.ViewModels.Wizards"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="ClaudeMigrator.App.Views.Wizards.LocalBundleWizardView"
+             x:DataType="wiz:LocalBundleWizardViewModel">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,16">
+            <TextBlock Classes="title" Text="{Binding Title}" />
+            <TextBlock Text="{Binding Subtitle}" Opacity="0.8" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Steps}" Margin="0,12,0,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WizardStepViewModel">
+                        <Border Padding="10,6" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="#2B2F36"
+                                Background="{Binding IsCurrent, Converter={x:Static vm:StepHighlightConverter.Instance}}">
+                            <TextBlock Text="{Binding Title}" FontSize="12" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <Carousel Grid.Row="1" SelectedIndex="{Binding CurrentStepIndex}">
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Overview" />
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Snapshot the Claude profile under ~/.claude into a portable ZIP, then optionally restore it under a destination home folder. Use this to move data between machines or to seed a new account on the same machine." />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Source and destination" />
+                    <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Source home" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding SourceHome, Mode=TwoWay}" Watermark="folder that contains ~/.claude" />
+                        <Button Grid.Row="0" Grid.Column="2" Content="Browse" Click="BrowseSourceHome_Click" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Destination home" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DestinationHome, Mode=TwoWay}" Watermark="folder to restore the bundle under" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="Browse" Click="BrowseDestinationHome_Click" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Account labels and target apps" />
+                    <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Source account label" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding SourceAccountLabel, Mode=TwoWay}" Watermark="old@example.com" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Target account label" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TargetAccountLabel, Mode=TwoWay}" Watermark="new@example.com" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <CheckBox Content="Claude" IsChecked="{Binding TargetClaude, Mode=TwoWay}" />
+                        <CheckBox Content="Codex" IsChecked="{Binding TargetCodex, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Confirm" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Opacity="0.75" FontSize="12" Text="Source home" />
+                        <TextBlock Text="{Binding SourceHome}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" />
+                        <TextBlock Opacity="0.75" FontSize="12" Margin="0,8,0,0" Text="Destination home" />
+                        <TextBlock Text="{Binding DestinationHome}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" />
+                    </StackPanel>
+                    <CheckBox Content="Restore after build" IsChecked="{Binding RestoreAfterBuild, Mode=TwoWay}" />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Run" />
+                    <TextBlock Text="{Binding ResultMessage}" TextWrapping="Wrap" />
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Bundle ZIP" Opacity="0.7" FontSize="12" />
+                        <TextBlock Text="{Binding BundleZipPath}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding RestoreSummary}" Opacity="0.7" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Border Background="#0F1014" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="8" Padding="8">
+                        <ListBox Height="240" ItemsSource="{Binding LogLines}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="11" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Carousel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0" HorizontalAlignment="Right">
+            <Button Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
+            <Button Content="Next" Command="{Binding NextCommand}" IsEnabled="{Binding CanGoNext}" />
+            <Button Content="Run" Command="{Binding FinishCommand}" IsEnabled="{Binding CanFinish}" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -1,0 +1,151 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ClaudeMigrator.App.ViewModels"
+             xmlns:wiz="using:ClaudeMigrator.App.ViewModels.Wizards"
+             xmlns:local="using:ClaudeMigrator.Core.Local"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="ClaudeMigrator.App.Views.Wizards.CoworkSessionsWizardView"
+             x:DataType="wiz:CoworkSessionsWizardViewModel">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,16">
+            <TextBlock Classes="title" Text="{Binding Title}" />
+            <TextBlock Text="{Binding Subtitle}" Opacity="0.8" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Steps}" Margin="0,12,0,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WizardStepViewModel">
+                        <Border Padding="10,6" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="#2B2F36"
+                                Background="{Binding IsCurrent, Converter={x:Static vm:StepHighlightConverter.Instance}}">
+                            <TextBlock Text="{Binding Title}" FontSize="12" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <Carousel Grid.Row="1" SelectedIndex="{Binding CurrentStepIndex}">
+            <!-- Step 0: Intro -->
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Overview" />
+                    <TextBlock TextWrapping="Wrap" Text="Move Claude Desktop Cowork tasks and Code session metadata from one account to another. The data lives under %APPDATA%\Claude\local-agent-mode-sessions and %APPDATA%\Claude\claude-code-sessions, keyed by accountUuid and organizationUuid." />
+                    <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Text="Close Claude Desktop before running. The IndexedDB log is locked while the app is open." />
+                </StackPanel>
+            </Border>
+
+            <!-- Step 1: Pick accounts -->
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Pick accounts" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                               Text="Source = the old account that has the existing sessions. Target = the current account you are logged into." />
+                    <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Source account" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  ItemsSource="{Binding Accounts}"
+                                  SelectedItem="{Binding SourceAccount, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="local:ClaudeOauthAccount">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding EmailAddress}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding AccountUuid}" Opacity="0.5" FontSize="11" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SourceAgentModeSessionsPath}" Opacity="0.5" FontSize="11" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Target account" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="2" Grid.Column="1"
+                                  ItemsSource="{Binding Accounts}"
+                                  SelectedItem="{Binding TargetAccount, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="local:ClaudeOauthAccount">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding EmailAddress}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding AccountUuid}" Opacity="0.5" FontSize="11" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding TargetAgentModeSessionsPath}" Opacity="0.5" FontSize="11" TextWrapping="Wrap" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Step 2: Confirm -->
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Confirm" />
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Toggle Dry run to validate the file set without writing anything. Toggle Overwrite to replace destination files even when they have the same name as the source." />
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="From (Cowork tasks):" Opacity="0.75" FontSize="12" />
+                        <TextBlock Text="{Binding SourceAgentModeSessionsPath}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="To:" Opacity="0.75" FontSize="12" />
+                        <TextBlock Text="{Binding TargetAgentModeSessionsPath}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="From (Code sessions):" Opacity="0.75" FontSize="12" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding SourceClaudeCodeSessionsPath}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="To:" Opacity="0.75" FontSize="12" />
+                        <TextBlock Text="{Binding TargetClaudeCodeSessionsPath}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <CheckBox Content="Dry run" IsChecked="{Binding DryRun, Mode=TwoWay}" />
+                        <CheckBox Content="Overwrite existing files" IsChecked="{Binding Overwrite, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Step 3: Run -->
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Run" />
+                    <TextBlock Text="{Binding ResultMessage}" TextWrapping="Wrap" />
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                        <Border Grid.Column="0" Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Copied" Opacity="0.7" FontSize="12" />
+                                <TextBlock Text="{Binding TotalCopiedCount}" FontSize="24" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Skipped" Opacity="0.7" FontSize="12" />
+                                <TextBlock Text="{Binding TotalSkippedCount}" FontSize="24" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Classes="card">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Failed" Opacity="0.7" FontSize="12" />
+                                <TextBlock Text="{Binding TotalFailedCount}" FontSize="24" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <Border Background="#0F1014" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="8" Padding="8">
+                        <ListBox Height="240" ItemsSource="{Binding LogLines}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="11" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Carousel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0" HorizontalAlignment="Right">
+            <Button Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
+            <Button Content="Next" Command="{Binding NextCommand}" IsEnabled="{Binding CanGoNext}" />
+            <Button Content="Run" Command="{Binding FinishCommand}" IsEnabled="{Binding CanFinish}" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

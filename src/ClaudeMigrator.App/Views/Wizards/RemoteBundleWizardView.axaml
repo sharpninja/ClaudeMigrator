@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ClaudeMigrator.App.ViewModels"
+             xmlns:wiz="using:ClaudeMigrator.App.ViewModels.Wizards"
+             xmlns:rt="using:ClaudeMigrator.Core.RemoteTargets"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="ClaudeMigrator.App.Views.Wizards.RemoteBundleWizardView"
+             x:DataType="wiz:RemoteBundleWizardViewModel">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,16">
+            <TextBlock Classes="title" Text="{Binding Title}" />
+            <TextBlock Text="{Binding Subtitle}" Opacity="0.8" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Steps}" Margin="0,12,0,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="8" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WizardStepViewModel">
+                        <Border Padding="10,6" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="#2B2F36"
+                                Background="{Binding IsCurrent, Converter={x:Static vm:StepHighlightConverter.Instance}}">
+                            <TextBlock Text="{Binding Title}" FontSize="12" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <Carousel Grid.Row="1" SelectedIndex="{Binding CurrentStepIndex}">
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Overview" />
+                    <TextBlock TextWrapping="Wrap"
+                               Text="Build an SSH or WSMan command line that you can paste on a remote machine to capture its ~/.claude profile into a bundle ZIP. This wizard does not run the command; it generates the text so you can run it on the remote box." />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Pick machine" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                               Text="The list comes from your configured remote machines. Add and edit them from the home view (this list is read-only here)." />
+                    <ListBox Height="280" ItemsSource="{Binding Machines}" SelectedItem="{Binding SelectedMachine, Mode=TwoWay}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="rt:RemoteMachineSpec">
+                                <Border Padding="10" Margin="0,0,0,8" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="10">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock FontSize="12" Opacity="0.7" Text="{Binding Host}" />
+                                        <TextBlock FontSize="12" Opacity="0.55" Text="{Binding ConnectionMethod}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Target apps" />
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <CheckBox Content="Claude" IsChecked="{Binding TargetClaude, Mode=TwoWay}" />
+                        <CheckBox Content="Codex" IsChecked="{Binding TargetCodex, Mode=TwoWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+                <StackPanel Spacing="12">
+                    <TextBlock Classes="section" Text="Command" />
+                    <TextBlock Text="{Binding ResultMessage}" TextWrapping="Wrap" />
+                    <Border Background="#0F1014" BorderBrush="#2B2F36" BorderThickness="1" CornerRadius="8" Padding="12">
+                        <TextBox AcceptsReturn="True" IsReadOnly="True" Height="220"
+                                 FontFamily="Cascadia Mono, Consolas, monospace"
+                                 FontSize="12"
+                                 Text="{Binding GeneratedCommand}" />
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Carousel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0" HorizontalAlignment="Right">
+            <Button Content="Back" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" />
+            <Button Content="Next" Command="{Binding NextCommand}" IsEnabled="{Binding CanGoNext}" />
+            <Button Content="Generate" Command="{Binding FinishCommand}" IsEnabled="{Binding CanFinish}" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" />
+        </StackPanel>
+    </Grid>
+</UserControl>
