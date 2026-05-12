@@ -1,9 +1,11 @@
 name: Test SelfHosted
 on:
   workflow_dispatch:
+defaults:
+  run:
+    shell: 'pwsh -NoLogo -NoProfile -Command "$ErrorActionPreference = ''Stop''; $PSNativeCommandUseErrorActionPreference = $true; & {0}"'
 jobs:
   ping:
     runs-on: [self-hosted, Windows, X64, claudemigrator]
     steps:
-      - run: echo "hello from $env:RUNNER_NAME"
-        shell: pwsh
+      - run: Write-Host "hello from $env:RUNNER_NAME"
