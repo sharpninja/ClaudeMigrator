@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.2.3). Required when running manually.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build, sign, and publish MSIX
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      installer_sha256: ${{ steps.package.outputs.installer_sha256 }}
+      signature_sha256: ${{ steps.package.outputs.signature_sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $raw = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_TYPE -eq 'tag') {
+              $env:GITHUB_REF_NAME
+          } else {
+              "${{ github.event.inputs.version }}"
+          }
+          if ([string]::IsNullOrWhiteSpace($raw)) { throw "No version supplied." }
+          $tag = if ($raw.StartsWith('v')) { $raw } else { "v$raw" }
+          $version = $tag -replace '^v',''
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $version (tag: $tag)"
+
+      - name: Restore
+        run: dotnet restore ClaudeMigrator.slnx
+
+      - name: Test
+        run: dotnet test tests/ClaudeMigrator.Tests/ClaudeMigrator.Tests.csproj -c Release --no-restore -v minimal
+
+      - name: Build MSIX
+        id: package
+        shell: pwsh
+        env:
+          MSIX_CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
+        run: |
+          ./packaging/msix/Build-Msix.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -CertificateBase64 $env:MSIX_CERT_BASE64 `
+            -CertificatePassword $env:MSIX_CERT_PASSWORD `
+            -SkipInstall -SkipCertTrust
+
+      - name: Stage release artifacts
+        shell: pwsh
+        run: |
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'release-artifacts'
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          Copy-Item 'packaging/msix/out/ClaudeMigrator.msix' (Join-Path $artifacts 'ClaudeMigrator.msix')
+          Copy-Item 'packaging/msix/out/ClaudeMigrator.cer' (Join-Path $artifacts 'ClaudeMigrator.cer')
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix
+          path: release-artifacts/*
+          retention-days: 30
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ClaudeMigrator ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/ClaudeMigrator.msix
+            release-artifacts/ClaudeMigrator.cer
+          body: |
+            ## Installing
+
+            **WinGet (preferred):**
+            ```
+            winget install SharpNinja.ClaudeMigrator
+            ```
+
+            **Manual:** download `ClaudeMigrator.msix` and `ClaudeMigrator.cer`, then run:
+            ```powershell
+            Import-Certificate -FilePath ClaudeMigrator.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+            Add-AppxPackage -Path ClaudeMigrator.msix
+            ```
+            (Cert import requires an elevated PowerShell prompt.)
+
+            Verify the package signature matches:
+            ```
+            InstallerSha256: ${{ steps.package.outputs.installer_sha256 }}
+            SignatureSha256: ${{ steps.package.outputs.signature_sha256 }}
+            ```
+
+  winget:
+    name: Publish to winget-pkgs
+    needs: build
+    runs-on: windows-latest
+    if: ${{ !startsWith(needs.build.outputs.version, '0.') }}
+    steps:
+      - name: Submit manifest to microsoft/winget-pkgs
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: SharpNinja.ClaudeMigrator
+          version: ${{ needs.build.outputs.version }}
+          installers-regex: 'ClaudeMigrator\.msix$'
+          release-tag: ${{ needs.build.outputs.tag }}
+          token: ${{ secrets.WINGET_PAT }}

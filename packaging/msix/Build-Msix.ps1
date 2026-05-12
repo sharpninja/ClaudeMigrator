@@ -1,23 +1,39 @@
-# Build, sign, and install a local MSIX of ClaudeMigrator.
+# Build, sign, and (optionally) install a local MSIX of ClaudeMigrator.
+#
+# Designed for both local developer use and unattended CI builds.
+#
+# Local dev (admin prompt to trust cert):
+#   pwsh -File packaging/msix/Build-Msix.ps1
+#
+# CI (cert supplied as base64 PFX, no install, no cert trust changes):
+#   pwsh -File packaging/msix/Build-Msix.ps1 `
+#     -Version 1.2.3 `
+#     -CertificateBase64 $env:MSIX_CERT_BASE64 `
+#     -CertificatePassword $env:MSIX_CERT_PASSWORD `
+#     -SkipInstall -SkipCertTrust
 #
 # Steps:
 #   1. Resolve Windows SDK tools (makeappx, signtool).
 #   2. Generate PNG visual assets from the existing app icon.
-#   3. dotnet publish the app as framework-dependent win-x64.
-#   4. Stage AppxManifest + Images alongside the publish output.
+#   3. dotnet publish the app as self-contained win-x64.
+#   4. Stage AppxManifest (with substituted version) + Images.
 #   5. makeappx pack into an .msix.
-#   6. Make or reuse a self-signed code-signing cert (CN=ClaudeMigrator).
+#   6. Resolve signing cert:
+#        - if -CertificateBase64 supplied, decode and import (preferred for CI)
+#        - else reuse or create a self-signed CN=ClaudeMigrator cert in CurrentUser\My
 #   7. signtool sign the .msix.
-#   8. Install the cert to LocalMachine TrustedPeople (admin).
-#   9. Add-AppxPackage to install the .msix for the current user.
-#
-# Run from any cwd. Re-runnable.
+#   8. Unless -SkipCertTrust: install cert into LocalMachine\TrustedPeople (admin).
+#   9. Unless -SkipInstall: Add-AppxPackage on the system volume.
 
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
-    [switch]$SkipInstall
+    [string]$Version,
+    [string]$CertificateBase64,
+    [string]$CertificatePassword,
+    [switch]$SkipInstall,
+    [switch]$SkipCertTrust
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,24 +83,41 @@ function Write-PngFromIcon {
                     $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
                     $graphics.Clear([System.Drawing.Color]::Transparent)
                     $graphics.DrawImage($sourceBitmap, 0, 0, $Width, $Height)
-                } finally {
-                    $graphics.Dispose()
-                }
+                } finally { $graphics.Dispose() }
                 $bitmap.Save($DestinationPath, [System.Drawing.Imaging.ImageFormat]::Png)
-            } finally {
-                $bitmap.Dispose()
-            }
-        } finally {
-            $sourceBitmap.Dispose()
-        }
-    } finally {
-        $icon.Dispose()
-    }
+            } finally { $bitmap.Dispose() }
+        } finally { $sourceBitmap.Dispose() }
+    } finally { $icon.Dispose() }
 }
 
-function Ensure-CodeSigningCert {
-    param([string]$Subject)
-    $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $Subject -and $_.NotAfter -gt (Get-Date) } | Select-Object -First 1
+function Resolve-SigningCertificate {
+    param(
+        [string]$Subject,
+        [string]$CertificateBase64,
+        [string]$CertificatePassword
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($CertificateBase64)) {
+        Write-Host "Importing supplied PFX into CurrentUser\My"
+        $bytes = [System.Convert]::FromBase64String($CertificateBase64)
+        $tempPfx = Join-Path $env:TEMP "claudemigrator-signing-$([guid]::NewGuid()).pfx"
+        try {
+            [System.IO.File]::WriteAllBytes($tempPfx, $bytes)
+            $securePassword = if ([string]::IsNullOrEmpty($CertificatePassword)) {
+                (New-Object System.Security.SecureString)
+            } else {
+                ConvertTo-SecureString -String $CertificatePassword -Force -AsPlainText
+            }
+            return Import-PfxCertificate -FilePath $tempPfx -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+        }
+        finally {
+            if (Test-Path $tempPfx) { Remove-Item $tempPfx -Force }
+        }
+    }
+
+    $existing = Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Subject -eq $Subject -and $_.NotAfter -gt (Get-Date) } |
+        Select-Object -First 1
     if ($existing) {
         Write-Host "Reusing existing code-signing cert thumbprint $($existing.Thumbprint)"
         return $existing
@@ -103,11 +136,33 @@ function Ensure-CodeSigningCert {
     return New-SelfSignedCertificate @params
 }
 
+function Set-ManifestVersion {
+    param(
+        [string]$ManifestPath,
+        [string]$Version
+    )
+    if ([string]::IsNullOrWhiteSpace($Version)) { return }
+
+    $normalized = $Version
+    if ($normalized -match '^\d+\.\d+\.\d+$') {
+        $normalized = "$normalized.0"
+    }
+    if (-not ($normalized -match '^\d+\.\d+\.\d+\.\d+$')) {
+        throw "Version must be MAJOR.MINOR.PATCH(.REVISION). Got: $Version"
+    }
+
+    $content = Get-Content -Path $ManifestPath -Raw
+    $updated = [regex]::Replace(
+        $content,
+        '(<Identity[^>]*?\sVersion=")[^"]+(")',
+        ('${1}' + $normalized + '${2}'))
+    Set-Content -Path $ManifestPath -Value $updated -Encoding UTF8
+    Write-Host "Set manifest Version=$normalized"
+}
+
 Write-Host "==> Resolving Windows SDK tools" -ForegroundColor Cyan
 $Makeappx = Resolve-SdkTool -ToolName "makeappx.exe"
 $Signtool = Resolve-SdkTool -ToolName "signtool.exe"
-Write-Host "    makeappx: $Makeappx"
-Write-Host "    signtool: $Signtool"
 
 Write-Host "==> Cleaning output directory" -ForegroundColor Cyan
 if (Test-Path $OutputRoot) { Remove-Item $OutputRoot -Recurse -Force }
@@ -129,49 +184,78 @@ $assetSizes = @{
 }
 foreach ($name in $assetSizes.Keys) {
     $size = $assetSizes[$name]
-    $destination = Join-Path $ImagesDir $name
-    Write-PngFromIcon -IconPath $IconSource -DestinationPath $destination -Width $size.Width -Height $size.Height
+    Write-PngFromIcon -IconPath $IconSource -DestinationPath (Join-Path $ImagesDir $name) -Width $size.Width -Height $size.Height
 }
 
 Write-Host "==> Copying manifest" -ForegroundColor Cyan
-Copy-Item $ManifestSource (Join-Path $StagingDir "AppxManifest.xml") -Force
+$stagedManifest = Join-Path $StagingDir "AppxManifest.xml"
+Copy-Item $ManifestSource $stagedManifest -Force
+Set-ManifestVersion -ManifestPath $stagedManifest -Version $Version
 
 Write-Host "==> Packing MSIX" -ForegroundColor Cyan
 & $Makeappx pack /o /d $StagingDir /p $PackageOutput
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit $LASTEXITCODE" }
 
-Write-Host "==> Ensuring code-signing certificate" -ForegroundColor Cyan
-$cert = Ensure-CodeSigningCert -Subject $CertSubject
+Write-Host "==> Resolving signing certificate" -ForegroundColor Cyan
+$cert = Resolve-SigningCertificate -Subject $CertSubject -CertificateBase64 $CertificateBase64 -CertificatePassword $CertificatePassword
 Export-Certificate -Cert $cert -FilePath $CertExport -Type CERT | Out-Null
 
 Write-Host "==> Signing MSIX" -ForegroundColor Cyan
 & $Signtool sign /fd SHA256 /a /sha1 $cert.Thumbprint $PackageOutput
 if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit $LASTEXITCODE" }
 
-Write-Host ""
-Write-Host "Package: $PackageOutput" -ForegroundColor Green
-Write-Host "Cert:    $CertExport" -ForegroundColor Green
-Write-Host "Thumbprint: $($cert.Thumbprint)" -ForegroundColor Green
-
-if ($SkipInstall) {
-    Write-Host "Skipping install (per -SkipInstall)."
-    return
+# Emit hashes useful for winget manifests.
+$msixHash = (Get-FileHash -Algorithm SHA256 $PackageOutput).Hash
+$signatureSha256 = ""
+try {
+    $expanded = Join-Path $OutputRoot "expanded"
+    if (Test-Path $expanded) { Remove-Item $expanded -Recurse -Force }
+    & $Makeappx unpack /o /p $PackageOutput /d $expanded | Out-Null
+    $sigPath = Join-Path $expanded "AppxSignature.p7x"
+    if (Test-Path $sigPath) {
+        $signatureSha256 = (Get-FileHash -Algorithm SHA256 $sigPath).Hash
+    }
+} catch {
+    # signature hash is informational only
 }
 
 Write-Host ""
-Write-Host "==> Installing certificate to LocalMachine TrustedPeople (requires admin)" -ForegroundColor Cyan
-$adminScript = @"
+Write-Host "Package:           $PackageOutput" -ForegroundColor Green
+Write-Host "Cert:              $CertExport" -ForegroundColor Green
+Write-Host "Cert thumbprint:   $($cert.Thumbprint)" -ForegroundColor Green
+Write-Host "InstallerSha256:   $msixHash" -ForegroundColor Green
+if (-not [string]::IsNullOrWhiteSpace($signatureSha256)) {
+    Write-Host "SignatureSha256:   $signatureSha256" -ForegroundColor Green
+}
+
+# Emit values for GitHub Actions outputs when running in CI.
+if ($env:GITHUB_OUTPUT) {
+    "installer_sha256=$msixHash"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+    "signature_sha256=$signatureSha256" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+    "package_path=$PackageOutput"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+    "certificate_path=$CertExport" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+}
+
+if ($SkipCertTrust) {
+    Write-Host "Skipping cert trust install (per -SkipCertTrust)."
+} else {
+    Write-Host "==> Installing certificate to LocalMachine\TrustedPeople (requires admin)" -ForegroundColor Cyan
+    $adminScript = @"
 Import-Certificate -FilePath '$CertExport' -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
 "@
-$adminScriptPath = Join-Path $OutputRoot "install-cert.ps1"
-Set-Content -Path $adminScriptPath -Value $adminScript -Encoding UTF8
-& gsudo pwsh -ExecutionPolicy Bypass -File $adminScriptPath
-if ($LASTEXITCODE -ne 0) { throw "Certificate install failed with exit $LASTEXITCODE" }
-Remove-Item $adminScriptPath -Force -ErrorAction SilentlyContinue
+    $adminScriptPath = Join-Path $OutputRoot "install-cert.ps1"
+    Set-Content -Path $adminScriptPath -Value $adminScript -Encoding UTF8
+    & gsudo pwsh -ExecutionPolicy Bypass -File $adminScriptPath
+    if ($LASTEXITCODE -ne 0) { throw "Certificate install failed with exit $LASTEXITCODE" }
+    Remove-Item $adminScriptPath -Force -ErrorAction SilentlyContinue
+}
+
+if ($SkipInstall) {
+    Write-Host "Skipping MSIX install (per -SkipInstall)."
+    return
+}
 
 Write-Host "==> Installing MSIX for current user" -ForegroundColor Cyan
-# Force install on the system volume (C:). Installing on a non-system AppX
-# volume can fail with 0x800701C0 at launch on some Windows 11 builds.
 $systemVolume = Get-AppxVolume | Where-Object { $_.IsSystemVolume -eq $true } | Select-Object -First 1
 if ($null -ne $systemVolume) {
     Add-AppxPackage -Path $PackageOutput -Volume $systemVolume -ForceApplicationShutdown
