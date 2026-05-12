@@ -1,3 +1,4 @@
+using ClaudeMigrator.Core.Local;
 using ClaudeMigrator.Core.Migration;
 using ClaudeMigrator.Core.Models;
 using ClaudeMigrator.Core.Paths;
@@ -57,6 +58,23 @@ public static class CliRunner
             return true;
         }
 
+        if (ContainsSwitch(args, "--migrate-local-agent-sessions"))
+        {
+            try
+            {
+                var result = RunMigrateLocalAgentSessions(ParseLocalAgentSessionsOptions(args));
+                Environment.ExitCode = result.FailedFileCount == 0 ? 0 : 2;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"ClaudeMigrator CLI failed: {ex.Message}");
+                Console.Error.WriteLine(ex);
+                Environment.ExitCode = 1;
+            }
+
+            return true;
+        }
+
         if (!ContainsSwitch(args, "--build-source-bundle"))
         {
             return false;
@@ -101,6 +119,27 @@ public static class CliRunner
         Console.WriteLine($"Conversations created/existing: {result.CreatedConversationCount}/{result.ExistingConversationCount}");
         Console.WriteLine($"Docs created/existing: {result.CreatedDocCount}/{result.ExistingDocCount}");
         Console.WriteLine($"Failed operations: {result.FailedOperationCount}");
+
+        return result;
+    }
+
+    private static LocalAgentSessionsMigrationResult RunMigrateLocalAgentSessions(LocalAgentSessionsMigrationOptions options)
+    {
+        var migrator = new LocalAgentSessionsMigrator(message => Console.WriteLine(message));
+        var result = migrator.Migrate(options);
+
+        Console.WriteLine($"Source directory: {result.SourceDirectory}");
+        Console.WriteLine($"Target directory: {result.TargetDirectory}");
+        Console.WriteLine($"Copied: {result.CopiedFileCount} files, {result.TotalBytesCopied} bytes");
+        Console.WriteLine($"Skipped (already present): {result.SkippedFileCount}");
+        Console.WriteLine($"Failed: {result.FailedFileCount}");
+        if (result.FailedRelativePaths.Count > 0)
+        {
+            foreach (var path in result.FailedRelativePaths)
+            {
+                Console.WriteLine($"  failed: {path}");
+            }
+        }
 
         return result;
     }
@@ -172,6 +211,30 @@ public static class CliRunner
             DryRun: ContainsSwitch(args, "--dry-run"),
             TranscriptProjectName: values.GetValueOrDefault("transcript-project-name"),
             Model: values.GetValueOrDefault("model"));
+    }
+
+    private static LocalAgentSessionsMigrationOptions ParseLocalAgentSessionsOptions(string[] args)
+    {
+        var values = ParseNamedArguments(args);
+
+        return new LocalAgentSessionsMigrationOptions(
+            SourceAccountUuid: RequireValue(values, "source-account-uuid"),
+            SourceOrgUuid: RequireValue(values, "source-org-uuid"),
+            TargetAccountUuid: RequireValue(values, "target-account-uuid"),
+            TargetOrgUuid: RequireValue(values, "target-org-uuid"),
+            SessionsRoot: values.GetValueOrDefault("sessions-root"),
+            DryRun: ContainsSwitch(args, "--dry-run"),
+            Overwrite: ContainsSwitch(args, "--overwrite"));
+    }
+
+    private static string RequireValue(IReadOnlyDictionary<string, string?> values, string key)
+    {
+        if (!values.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"--{key} is required.");
+        }
+
+        return value;
     }
 
     private static ClaudeWebRecreationVerificationOptions ParseVerifyWebRecreationOptions(string[] args)
@@ -267,9 +330,10 @@ public static class CliRunner
         Console.WriteLine("ClaudeMigrator CLI");
         Console.WriteLine();
         Console.WriteLine("Commands:");
-        Console.WriteLine("  --build-source-bundle    Snapshot the local .claude profile and create a local bundle");
-        Console.WriteLine("  --recreate-web-export    Recreate Claude web export projects, chats, and transcript docs through an attached Edge session");
-        Console.WriteLine("  --verify-web-recreation  Verify a web recreation manifest through an attached Edge session");
+        Console.WriteLine("  --build-source-bundle           Snapshot the local .claude profile and create a local bundle");
+        Console.WriteLine("  --recreate-web-export           Recreate Claude web export projects, chats, and transcript docs through an attached Edge session");
+        Console.WriteLine("  --verify-web-recreation         Verify a web recreation manifest through an attached Edge session");
+        Console.WriteLine("  --migrate-local-agent-sessions  Copy Claude Desktop Cowork/agent sessions (local_*.json, agent/, scheduled-tasks.json, spaces.json) between accounts; rpm/ excluded");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --source-home <path>");
@@ -289,6 +353,12 @@ public static class CliRunner
         Console.WriteLine("  --output-verification <path>");
         Console.WriteLine("  --transcript-project-name <name>");
         Console.WriteLine("  --model <model>");
+        Console.WriteLine("  --source-account-uuid <uuid>");
+        Console.WriteLine("  --source-org-uuid <uuid>");
+        Console.WriteLine("  --target-account-uuid <uuid>");
+        Console.WriteLine("  --target-org-uuid <uuid>");
+        Console.WriteLine("  --sessions-root <path>          Defaults to %APPDATA%\\Claude\\local-agent-mode-sessions");
+        Console.WriteLine("  --overwrite                     Overwrite existing destination files");
         Console.WriteLine("  --dry-run");
     }
 }
