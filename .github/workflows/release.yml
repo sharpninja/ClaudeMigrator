@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: 'pwsh -NoLogo -NoProfile -Command "$ErrorActionPreference = ''Stop''; $PSNativeCommandUseErrorActionPreference = $true; & {0}"'
+
 jobs:
   build:
     name: Build, sign, and publish MSIX
@@ -33,7 +37,6 @@ jobs:
 
       - name: Resolve version
         id: version
-        shell: pwsh
         run: |
           $raw = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_TYPE -eq 'tag') {
               $env:GITHUB_REF_NAME
@@ -55,7 +58,6 @@ jobs:
 
       - name: Build MSIX
         id: package
-        shell: pwsh
         env:
           MSIX_CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
           MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
@@ -67,7 +69,6 @@ jobs:
             -SkipInstall -SkipCertTrust
 
       - name: Stage release artifacts
-        shell: pwsh
         run: |
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'release-artifacts'
           New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
