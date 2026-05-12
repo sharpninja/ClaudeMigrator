@@ -50,6 +50,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void BrowseDestinationHome_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var storage = StorageProvider;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select Claude destination home folder",
+            AllowMultiple = false,
+        });
+
+        if (folders.Count > 0)
+        {
+            ViewModel?.SetDestinationHomePath(folders[0].TryGetLocalPath());
+        }
+    }
+
     private async void BrowseSourceRepoRoot_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var storage = StorageProvider;

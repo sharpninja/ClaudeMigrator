@@ -11,6 +11,7 @@ Windows desktop app for migrating Claude account content into a portable local b
 - Lets you choose one or both targets:
   - Claude
   - Codex
+- Lets you enter source, destination, and target account values in the Source section.
 - Opens Edge for the source account and Firefox for the destination account.
 - Saves `storage_state` snapshots for both browsers.
 - Triggers the official Claude export flow.
@@ -29,7 +30,8 @@ Windows desktop app for migrating Claude account content into a portable local b
   - `conversations/[chat_title]/chat.json`
   - `artifacts/extracted_code/`
   - `manifest.json`
-- Can import memory, recreate projects, and seed continuation chats on a best-effort basis.
+- Can import Claude-managed memory on a best-effort basis. Claude rewrites this memory during import, so it is not used as the exact artifact store.
+- Can recreate Claude web export data exactly by creating/matching projects and conversations, then writing transcript, memory, and project documents into Claude project docs with manifest and SHA-256 verification.
 - Can export all artifacts to a clean portable ZIP independently of the browser steps.
 
 ## Important Warning
@@ -58,10 +60,12 @@ dotnet run --project src/ClaudeMigrator.App/ClaudeMigrator.App.csproj
 2. Pick a source mode:
    - `Local profile snapshot` to bundle the current `~/.claude`
    - `Source ZIP` to use an existing export ZIP
-3. Choose the target app(s) with the `Claude` and `Codex` checkboxes.
-4. Use `Browse...` only in `Source ZIP` mode, or let the app discover the newest ZIP in your Downloads folder.
-5. Click `Start Full Migration`.
-6. When the browser setup step pauses, sign in to both Claude accounts and click `Save Sessions & Continue`.
+3. Fill in the source account and target account labels in the Source section.
+4. Fill in the destination home if you want the local snapshot restored somewhere other than your current user profile.
+5. Choose the target app(s) with the `Claude` and `Codex` checkboxes.
+6. Use `Browse...` only in `Source ZIP` mode, or let the app discover the newest ZIP in your Downloads folder.
+7. Click `Start Full Migration`.
+8. When the browser setup step pauses, sign in to both Claude accounts and click `Save Sessions & Continue`.
 
 ## Bundles
 
@@ -80,13 +84,15 @@ The local snapshot bundle includes a top-level `claude_local_bundle_YYYYMMDD_HHM
 - `source/home/.claude/`
 - `source/home/.claude.json`
 
+The bundle metadata also preserves the source machine, host, user, connection method, source account label, target account label, and destination home so the snapshot can be written back under the right account later.
+
 The manifest includes import guidance for:
 
 - another Claude account
 - a local Codex instance
 - GitHub Copilot or Microsoft Copilot
 
-The local bundle also preserves the source machine name, host, user, connection method, working directory, and a safe account summary so the bundle can be written back under a new account later.
+The local bundle also preserves the source machine name, host, user, connection method, working directory, source account label, target account label, destination home, and a safe account summary so the bundle can be written back under a new account later.
 
 ## Remote Machines
 
@@ -110,6 +116,51 @@ The browser integration tests use Playwright and real browser binaries. After th
 ```powershell
 pwsh .\tests\ClaudeMigrator.Tests\bin\Debug\net10.0\playwright.ps1 install chromium firefox msedge
 ```
+
+Live Claude browser tests are gated off by default. Set these environment variables to opt in:
+
+```powershell
+$env:CLAUDEMIGRATOR_RUN_LIVE_CLAUDE = "1"
+$env:CLAUDEMIGRATOR_LIVE_EDGE_STORAGE_STATE = "C:\path\to\edge.storage.json"
+$env:CLAUDEMIGRATOR_LIVE_EDGE_DEBUG_URL = "http://127.0.0.1:9222"
+$env:CLAUDEMIGRATOR_LIVE_EDGE_PROFILE_ROOT = "C:\path\to\edge-test-profile"
+```
+
+The live export test requires either a live Claude export ZIP or the Edge storage state file. The live Edge import test attaches to a Chromium/Edge browser started with remote debugging at the URL above, plus either a live export ZIP or the Edge storage state file.
+That import verification now restarts the dedicated Edge profile, reattaches, and re-exports Claude so the test proves the imported memory survives a fresh browser session.
+
+For exact web-data recreation from a Claude export ZIP, attach to an already logged-in Edge session and run:
+
+```powershell
+dotnet run --project src/ClaudeMigrator.App/ClaudeMigrator.App.csproj -- `
+  --recreate-web-export `
+  --export-zip "C:\path\to\claude-export.zip" `
+  --edge-debug-url "http://127.0.0.1:9222" `
+  --output-manifest ".\runtime\web_recreation\manifest.json"
+
+dotnet run --project src/ClaudeMigrator.App/ClaudeMigrator.App.csproj -- `
+  --verify-web-recreation `
+  --manifest ".\runtime\web_recreation\manifest.json" `
+  --edge-debug-url "http://127.0.0.1:9222"
+```
+
+There is also a browser-free live local test that reads your real `~/.claude` profile and restores it into a temp destination home. Enable it with:
+
+```powershell
+$env:CLAUDEMIGRATOR_RUN_LIVE_LOCAL = "1"
+```
+
+If you want to point at a different source home, set `CLAUDEMIGRATOR_LIVE_LOCAL_SOURCE_HOME` before running the test.
+
+Helper:
+
+```powershell
+.\Start-LiveClaudeEdge.ps1
+```
+
+That script opens a dedicated test profile, enables remote debugging on port `9222`, and sets `CLAUDEMIGRATOR_LIVE_EDGE_DEBUG_URL` for the current shell.
+It opens Claude directly on the data privacy controls page so the live import flow starts on the right screen.
+It also sets `CLAUDEMIGRATOR_LIVE_EDGE_PROFILE_ROOT` so the test can restart the dedicated browser profile during post-import verification.
 
 ## Manual Steps You Still Need
 

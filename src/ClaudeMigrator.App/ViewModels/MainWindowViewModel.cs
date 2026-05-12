@@ -21,14 +21,17 @@ namespace ClaudeMigrator.App.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly MigrationController _controller;
+    private readonly Action<string> _openFolder;
     private bool _syncingSourceMode;
 
-    public MainWindowViewModel(MigrationController controller)
+    public MainWindowViewModel(MigrationController controller, Action<string>? openFolder = null)
     {
         _controller = controller;
+        _openFolder = openFolder ?? OpenFolderInSystemShell;
         DebugLogPath = _controller.LogFilePath;
         LaunchSummary = $"Ready. Debug log: {_controller.LogFilePath}";
         SourceHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        DestinationHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         SourceMachineName = Environment.MachineName;
         SourceHost = Environment.MachineName;
         SourceUser = Environment.UserName;
@@ -95,6 +98,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private string sourceHome = string.Empty;
 
     [ObservableProperty]
+    private string destinationHome = string.Empty;
+
+    [ObservableProperty]
     private string sourceMachineName = string.Empty;
 
     [ObservableProperty]
@@ -102,6 +108,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private string sourceUser = string.Empty;
+
+    [ObservableProperty]
+    private string sourceAccount = string.Empty;
+
+    [ObservableProperty]
+    private string targetAccount = string.Empty;
 
     [ObservableProperty]
     private string sourceRepoRoot = string.Empty;
@@ -261,7 +273,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         IsRunning = true;
         try
         {
-            await _controller.RestoreLocalBundleAsync(SelectedExportZip, BuildOptions().TargetApps).ConfigureAwait(false);
+            var options = BuildOptions();
+            await _controller.RestoreLocalBundleAsync(SelectedExportZip, options.TargetApps, options.DestinationHome).ConfigureAwait(false);
             StatusText = "Local bundle restored.";
         }
         catch (Exception ex)
@@ -344,26 +357,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void OpenLogsFolder()
     {
-        try
-        {
-            var folder = Path.GetDirectoryName(DebugLogPath);
-            if (string.IsNullOrWhiteSpace(folder))
-            {
-                return;
-            }
+        OpenFolder(_controller.Paths.LogsDir, "logs");
+    }
 
-            var processStartInfo = new ProcessStartInfo
-            {
-                FileName = OperatingSystem.IsWindows() ? "explorer.exe" : "xdg-open",
-                Arguments = folder,
-                UseShellExecute = true,
-            };
-            Process.Start(processStartInfo);
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Could not open logs folder: {ex.Message}";
-        }
+    [RelayCommand]
+    private void OpenSessionsFolder()
+    {
+        OpenFolder(_controller.Paths.SessionsDir, "sessions");
     }
 
     public void SetSelectedExportZipPath(string? path)
@@ -384,6 +384,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         SourceHome = Path.GetFullPath(path);
+    }
+
+    public void SetDestinationHomePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        DestinationHome = Path.GetFullPath(path);
     }
 
     public void SetSourceRepoRootPath(string? path)
@@ -422,10 +432,54 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             SourceHost = SourceHost,
             ConnectionMethod = ConnectionMethod,
             SourceUser = SourceUser,
+            SourceAccount = SourceAccount,
+            TargetAccount = TargetAccount,
             SourceRepoRoot = SourceRepoRoot,
+            DestinationHome = DestinationHome,
             ExportZipPath = SelectedExportZip,
             TargetApps = targetApps,
         };
+    }
+
+    private void OpenFolder(string folder, string label)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                return;
+            }
+
+            if (!Directory.Exists(folder))
+            {
+                StatusText = $"Could not open {label} folder: folder does not exist.";
+                return;
+            }
+
+            _openFolder(folder);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not open {label} folder: {ex.Message}";
+        }
+    }
+
+    private static void OpenFolderInSystemShell(string folder)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo(folder)
+            {
+                UseShellExecute = true,
+            });
+            return;
+        }
+
+        var opener = OperatingSystem.IsMacOS() ? "open" : "xdg-open";
+        Process.Start(new ProcessStartInfo(opener, folder)
+        {
+            UseShellExecute = true,
+        });
     }
 
     private RemoteMachineSpec BuildRemoteMachineSpec()
@@ -550,12 +604,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        _controller.LogMessage -= OnControllerLog;
-        _controller.OverallProgressChanged -= OnOverallProgressChanged;
-        _controller.StepUpdated -= OnStepUpdated;
-        _controller.ManualActionRequested -= OnManualActionRequested;
-        _controller.ArtifactRecorded -= OnArtifactRecorded;
-        _controller.RunStateChanged -= OnRunStateChanged;
+        _controller.LogMessage = (Action<string, string>?)Delegate.Remove(_controller.LogMessage, new Action<string, string>(OnControllerLog)) ?? delegate { };
+        _controller.OverallProgressChanged = (Action<int, string>?)Delegate.Remove(_controller.OverallProgressChanged, new Action<int, string>(OnOverallProgressChanged)) ?? delegate { };
+        _controller.StepUpdated = (Action<StepState>?)Delegate.Remove(_controller.StepUpdated, new Action<StepState>(OnStepUpdated)) ?? delegate { };
+        _controller.ManualActionRequested = (Action<ManualAction>?)Delegate.Remove(_controller.ManualActionRequested, new Action<ManualAction>(OnManualActionRequested)) ?? delegate { };
+        _controller.ArtifactRecorded = (Action<string, object?>?)Delegate.Remove(_controller.ArtifactRecorded, new Action<string, object?>(OnArtifactRecorded)) ?? delegate { };
+        _controller.RunStateChanged = (Action<string>?)Delegate.Remove(_controller.RunStateChanged, new Action<string>(OnRunStateChanged)) ?? delegate { };
         _controller.Dispose();
     }
 }

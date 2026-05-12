@@ -20,6 +20,8 @@ public sealed record BrowserSessionHandle(
 
 public sealed class BrowserManager
 {
+    public const string ClaudeDataPrivacyControlsUrl = "https://claude.ai/settings/data-privacy-controls";
+
     private readonly object _gate = new();
     private readonly SemaphoreSlim _playwrightGate = new(1, 1);
     private readonly ConcurrentDictionary<string, BrowserSessionHandle> _sessions = new(StringComparer.OrdinalIgnoreCase);
@@ -86,6 +88,7 @@ public sealed class BrowserManager
             {
                 ViewportSize = new ViewportSize { Width = 1440, Height = 1000 },
                 IgnoreHTTPSErrors = true,
+                AcceptDownloads = true,
             };
 
             if (File.Exists(spec.StorageStatePath))
@@ -212,13 +215,23 @@ public sealed class BrowserManager
     {
         foreach (var label in labels)
         {
-            if (await ClickCandidateAsync(page, label, timeoutMs, cancellationToken).ConfigureAwait(false))
+            if (await ClickCandidateAsync(page, label, 0, timeoutMs, cancellationToken).ConfigureAwait(false))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    public async Task<bool> ClickNthCandidateAsync(IPage page, string label, int occurrenceIndex, int timeoutMs = 5000, CancellationToken cancellationToken = default)
+    {
+        if (occurrenceIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(occurrenceIndex));
+        }
+
+        return await ClickCandidateAsync(page, label, occurrenceIndex, timeoutMs, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> FillFirstTextControlAsync(IPage page, string value, CancellationToken cancellationToken = default)
@@ -267,11 +280,8 @@ public sealed class BrowserManager
             var candidate = locator.Nth(index);
             try
             {
-                if (await candidate.IsVisibleAsync().ConfigureAwait(false))
-                {
-                    await candidate.SetInputFilesAsync(filePath).ConfigureAwait(false);
-                    return true;
-                }
+                await candidate.SetInputFilesAsync(filePath).ConfigureAwait(false);
+                return true;
             }
             catch
             {
@@ -353,7 +363,7 @@ public sealed class BrowserManager
         }
     }
 
-    private async Task<bool> ClickCandidateAsync(IPage page, string label, int timeoutMs, CancellationToken cancellationToken)
+    private async Task<bool> ClickCandidateAsync(IPage page, string label, int occurrenceIndex, int timeoutMs, CancellationToken cancellationToken)
     {
         var selectors = new List<Func<ILocator>>
         {
@@ -371,12 +381,21 @@ public sealed class BrowserManager
             try
             {
                 var locator = factory();
-                if (await locator.CountAsync().ConfigureAwait(false) == 0)
+                if (await locator.CountAsync().ConfigureAwait(false) <= occurrenceIndex)
                 {
                     continue;
                 }
 
-                await locator.First.ClickAsync(new LocatorClickOptions { Timeout = timeoutMs }).ConfigureAwait(false);
+                var candidate = locator.Nth(occurrenceIndex);
+                try
+                {
+                    await candidate.ClickAsync(new LocatorClickOptions { Timeout = timeoutMs }).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await candidate.ClickAsync(new LocatorClickOptions { Timeout = timeoutMs, Force = true }).ConfigureAwait(false);
+                }
+
                 return true;
             }
             catch (PlaywrightException)

@@ -342,6 +342,7 @@ claude_migration_app/portable_exports/
 claude_migration_app/_smoke_sample.zip
 claude_migration_app/*.py
 claude_migration_app/steps/*.py
+runtime/
 .version
 
 # Cake - Uncomment if you are using it

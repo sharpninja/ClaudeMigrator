@@ -38,10 +38,13 @@ public sealed class LocalClaudeBundleExporter
     public LocalBundleResult ExportLocalBundle(
         string? outputZip = null,
         string? sourceHome = null,
+        string? destinationHome = null,
         string? sourceMachineName = null,
         string? sourceHost = null,
         string connectionMethod = "local",
         string? sourceUser = null,
+        string? sourceAccount = null,
+        string? targetAccount = null,
         string? sourceRepoRoot = null,
         IEnumerable<string>? targetApps = null,
         Action<int, string>? progressCallback = null,
@@ -53,14 +56,18 @@ public sealed class LocalClaudeBundleExporter
         var normalizedSourceHome = string.IsNullOrWhiteSpace(sourceHome)
             ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             : sourceHome;
+        var normalizedDestinationHome = string.IsNullOrWhiteSpace(destinationHome)
+            ? normalizedSourceHome
+            : destinationHome;
         var profileRoot = Path.Combine(normalizedSourceHome, LocalProfileRoot);
         var accountFile = Path.Combine(normalizedSourceHome, LocalAccountFile);
         var targets = NormalizeTargets(targetApps);
 
         LogLine(
             "Local bundle source: "
-            + $"home={normalizedSourceHome} machine={sourceMachineName ?? string.Empty} host={sourceHost ?? string.Empty} "
+            + $"home={normalizedSourceHome} destination_home={normalizedDestinationHome} machine={sourceMachineName ?? string.Empty} host={sourceHost ?? string.Empty} "
             + $"method={connectionMethod} user={sourceUser ?? string.Empty} repo_root={sourceRepoRoot ?? string.Empty} "
+            + $"source_account={sourceAccount ?? string.Empty} target_account={targetAccount ?? string.Empty} "
             + $"targets={string.Join(',', targets)}");
 
         Emit(5, "Reading local Claude profile");
@@ -72,6 +79,8 @@ public sealed class LocalClaudeBundleExporter
             sourceHost: sourceHost,
             connectionMethod: connectionMethod,
             sourceUser: sourceUser,
+            sourceAccount: sourceAccount,
+            targetAccount: targetAccount,
             sourceRepoRoot: sourceRepoRoot,
             targetApps: targets,
             accountSummary: accountSummary);
@@ -97,10 +106,10 @@ public sealed class LocalClaudeBundleExporter
         File.WriteAllText(sourceEnvironmentPath, JsonSerializer.Serialize(sourceEnvironment, JsonOptions), Encoding.UTF8);
 
         var sourceAccountSummaryPath = WriteSourceAccountSummary(metadataRoot, accountPayload, accountSummary);
-        var restorePlan = BuildRestorePlan(targets, normalizedSourceHome);
+        var restorePlan = BuildRestorePlan(targets, normalizedDestinationHome, sourceAccount, targetAccount);
         var restorePlanPath = Path.Combine(metadataRoot, "restore_plan.json");
         File.WriteAllText(restorePlanPath, JsonSerializer.Serialize(restorePlan, JsonOptions), Encoding.UTF8);
-        var restoreReadme = WriteRestoreReadme(restoreRoot, restorePlan, sourceEnvironment, accountSummary);
+        var restoreReadme = WriteRestoreReadme(restoreRoot, restorePlan, sourceEnvironment, accountSummary, normalizedDestinationHome);
 
         var counts = new Dictionary<string, int>
         {
@@ -117,12 +126,15 @@ public sealed class LocalClaudeBundleExporter
             runName: runName,
             bundleRoot: bundleRoot,
             sourceHome: normalizedSourceHome,
+            destinationHome: normalizedDestinationHome,
             profileRoot: profileSnapshotRoot,
             accountFile: sourceAccountCopyPath,
             sourceEnvironmentPath: sourceEnvironmentPath,
             restorePlanPath: restorePlanPath,
             restoreReadme: restoreReadme,
             accountSummary: accountSummary,
+            sourceAccount: sourceAccount,
+            targetAccount: targetAccount,
             targetApps: targets,
             counts: counts,
             sourceEnvironment: sourceEnvironment,
@@ -151,6 +163,7 @@ public sealed class LocalClaudeBundleExporter
 
         return new LocalBundleResult(
             SourceHome: normalizedSourceHome,
+            DestinationHome: normalizedDestinationHome,
             ProfileRoot: profileSnapshotRoot,
             AccountFile: sourceAccountCopyPath,
             BundleRoot: bundleRoot,
@@ -256,6 +269,8 @@ public sealed class LocalClaudeBundleExporter
                 ["destination_home"] = normalizedDestinationHome,
                 ["restored_targets"] = restored,
                 ["source_machine"] = ReadString(manifest, "source_environment", "source_machine_name"),
+                ["source_account_name"] = ReadString(manifest, "source_environment", "source_account_name"),
+                ["target_account_name"] = ReadString(manifest, "source_environment", "target_account_name"),
                 ["source_account"] = ReadObject(manifest, "source_account"),
             };
 
@@ -453,6 +468,8 @@ public sealed class LocalClaudeBundleExporter
         string? sourceHost,
         string connectionMethod,
         string? sourceUser,
+        string? sourceAccount,
+        string? targetAccount,
         string? sourceRepoRoot,
         IReadOnlyList<string> targetApps,
         Dictionary<string, object?> accountSummary)
@@ -484,6 +501,8 @@ public sealed class LocalClaudeBundleExporter
             ["source_machine_name"] = string.IsNullOrWhiteSpace(sourceMachineName) ? Environment.MachineName : sourceMachineName,
             ["source_host"] = string.IsNullOrWhiteSpace(sourceHost) ? Environment.MachineName : sourceHost,
             ["source_user"] = string.IsNullOrWhiteSpace(sourceUser) ? Environment.UserName : sourceUser,
+            ["source_account_name"] = string.IsNullOrWhiteSpace(sourceAccount) ? string.Empty : sourceAccount.Trim(),
+            ["target_account_name"] = string.IsNullOrWhiteSpace(targetAccount) ? string.Empty : targetAccount.Trim(),
             ["connection_method"] = string.IsNullOrWhiteSpace(connectionMethod) ? "local" : connectionMethod.Trim().ToLowerInvariant(),
             ["source_repo_root"] = sourceRepoRoot ?? string.Empty,
             ["source_home"] = sourceHome,
@@ -505,18 +524,22 @@ public sealed class LocalClaudeBundleExporter
         };
     }
 
-    private static Dictionary<string, object?> BuildRestorePlan(IReadOnlyList<string> targetApps, string sourceHome)
+    private static Dictionary<string, object?> BuildRestorePlan(
+        IReadOnlyList<string> targetApps,
+        string destinationHome,
+        string? sourceAccount = null,
+        string? targetAccount = null)
     {
         var targets = new List<Dictionary<string, object?>>();
         foreach (var target in targetApps)
         {
             var targetRootName = TargetRoots[target];
-            var targetRoot = Path.Combine(sourceHome, targetRootName);
+            var targetRoot = Path.Combine(destinationHome, targetRootName);
             targets.Add(new Dictionary<string, object?>
             {
                 ["app"] = target,
                 ["target_profile_root"] = $"~/{targetRootName}",
-                ["target_home"] = sourceHome,
+                ["target_home"] = destinationHome,
                 ["target_root_path"] = targetRoot,
                 ["writeback_strategy"] = "mirror-profile-root",
             });
@@ -526,6 +549,8 @@ public sealed class LocalClaudeBundleExporter
         {
             ["source_profile_root"] = $"~/{LocalProfileRoot}",
             ["source_account_file"] = $"~/{LocalAccountFile}",
+            ["source_account_name"] = string.IsNullOrWhiteSpace(sourceAccount) ? string.Empty : sourceAccount.Trim(),
+            ["target_account_name"] = string.IsNullOrWhiteSpace(targetAccount) ? string.Empty : targetAccount.Trim(),
             ["targets"] = targets,
             ["notes"] = new[]
             {
@@ -547,7 +572,7 @@ public sealed class LocalClaudeBundleExporter
         return path;
     }
 
-    private static string WriteRestoreReadme(string restoreRoot, Dictionary<string, object?> restorePlan, Dictionary<string, object?> sourceEnvironment, Dictionary<string, object?> accountSummary)
+    private static string WriteRestoreReadme(string restoreRoot, Dictionary<string, object?> restorePlan, Dictionary<string, object?> sourceEnvironment, Dictionary<string, object?> accountSummary, string destinationHome)
     {
         var lines = new List<string>
         {
@@ -557,7 +582,10 @@ public sealed class LocalClaudeBundleExporter
             $"- Name: `{ReadValue(sourceEnvironment, "source_machine_name")}`",
             $"- Host: `{ReadValue(sourceEnvironment, "source_host")}`",
             $"- User: `{ReadValue(sourceEnvironment, "source_user")}`",
+            $"- Source account label: `{ReadValue(sourceEnvironment, "source_account_name")}`",
+            $"- Target account label: `{ReadValue(sourceEnvironment, "target_account_name")}`",
             $"- Connection: `{ReadValue(sourceEnvironment, "connection_method")}`",
+            $"- Destination home: `{destinationHome}`",
             "",
             "## Source Account",
             $"- Email: `{ReadValue(accountSummary, "email_address")}`",
@@ -594,12 +622,15 @@ public sealed class LocalClaudeBundleExporter
         string runName,
         string bundleRoot,
         string sourceHome,
+        string destinationHome,
         string profileRoot,
         string? accountFile,
         string sourceEnvironmentPath,
         string restorePlanPath,
         string restoreReadme,
         Dictionary<string, object?> accountSummary,
+        string? sourceAccount,
+        string? targetAccount,
         IReadOnlyList<string> targetApps,
         IReadOnlyDictionary<string, int> counts,
         Dictionary<string, object?> sourceEnvironment,
@@ -614,7 +645,10 @@ public sealed class LocalClaudeBundleExporter
             ["created_at"] = PathUtils.TimestampTag(),
             ["source_environment"] = sourceEnvironment,
             ["source_account"] = accountSummary,
+            ["source_account_name"] = string.IsNullOrWhiteSpace(sourceAccount) ? string.Empty : sourceAccount.Trim(),
+            ["target_account_name"] = string.IsNullOrWhiteSpace(targetAccount) ? string.Empty : targetAccount.Trim(),
             ["source_home"] = sourceHome,
+            ["destination_home"] = destinationHome,
             ["source_profile_root"] = profileRoot,
             ["paths"] = new Dictionary<string, object?>
             {
@@ -632,7 +666,10 @@ public sealed class LocalClaudeBundleExporter
             {
                 ["app"] = target,
                 ["profile_root"] = $"~/{TargetRoots[target]}",
+                ["target_home"] = destinationHome,
+                ["target_root_path"] = Path.Combine(destinationHome, TargetRoots[target]),
                 ["writeback_strategy"] = "mirror-profile-root",
+                ["target_account_name"] = string.IsNullOrWhiteSpace(targetAccount) ? string.Empty : targetAccount.Trim(),
             }).ToArray(),
             ["import_guides"] = new Dictionary<string, object?>
             {

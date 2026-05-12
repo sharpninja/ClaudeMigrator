@@ -163,6 +163,7 @@ public sealed class MigrationController : IDisposable
             SetSourceMode(options.SourceMode);
             SetTargetApps(options.TargetApps);
             SelectedExportZip = options.ExportZipPath;
+            Log($"Migration accounts: source_account={options.SourceAccount ?? string.Empty}, target_account={options.TargetAccount ?? string.Empty}, destination_home={options.DestinationHome}");
             UpdateOverallProgress(0, "Starting migration");
             RunStateChanged("running");
 
@@ -204,15 +205,19 @@ public sealed class MigrationController : IDisposable
             SetSourceMode(SourceMode.LocalSnapshot);
             SetTargetApps(options.TargetApps);
             UpdateOverallProgress(0, "Building local bundle");
+            Log($"Local bundle destination_home={options.DestinationHome}");
             MarkStepQueued("build_source_bundle", "Build Source Bundle", "Snapshot the local Claude profile.");
             UpdateStep(new StepState("build_source_bundle", "Build Source Bundle", "Snapshot the local Claude profile.", StepStatus.Running, 10, "Reading local profile"));
 
             var result = LocalExporter.ExportLocalBundle(
                 sourceHome: options.SourceHome,
+                destinationHome: options.DestinationHome,
                 sourceMachineName: options.SourceMachineName,
                 sourceHost: options.SourceHost,
                 connectionMethod: options.ConnectionMethod,
                 sourceUser: options.SourceUser,
+                sourceAccount: options.SourceAccount,
+                targetAccount: options.TargetAccount,
                 sourceRepoRoot: options.SourceRepoRoot,
                 targetApps: options.TargetAppNames,
                 progressCallback: (percent, message) => UpdateOverallProgress(percent, message));
@@ -236,7 +241,7 @@ public sealed class MigrationController : IDisposable
         }
     }
 
-    public async Task RestoreLocalBundleAsync(string bundlePath, IEnumerable<TargetApp>? targetApps = null, CancellationToken cancellationToken = default)
+    public async Task RestoreLocalBundleAsync(string bundlePath, IEnumerable<TargetApp>? targetApps = null, string? destinationHome = null, CancellationToken cancellationToken = default)
     {
         await _runGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -244,7 +249,9 @@ public sealed class MigrationController : IDisposable
             var selectedTargets = (targetApps ?? TargetApps).Select(app => app.ToString().ToLowerInvariant());
             var result = LocalExporter.RestoreLocalBundle(
                 bundlePath,
-                destinationHome: Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                destinationHome: string.IsNullOrWhiteSpace(destinationHome)
+                    ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                    : destinationHome,
                 targetApps: selectedTargets,
                 progressCallback: (percent, message) => UpdateOverallProgress(percent, message));
             ArtifactRecorded("local_restore_result", result);
@@ -348,12 +355,16 @@ public sealed class MigrationController : IDisposable
         MarkStepQueued("restore_local_bundle", "Restore Local Bundle", "Restore the snapshot to the selected targets.");
 
         UpdateStep(new StepState("build_source_bundle", "Build Source Bundle", "Snapshot the local Claude profile.", StepStatus.Running, 10, "Reading local profile"));
+        Log($"Local bundle destination_home={options.DestinationHome}");
         var buildResult = LocalExporter.ExportLocalBundle(
             sourceHome: options.SourceHome,
+            destinationHome: options.DestinationHome,
             sourceMachineName: options.SourceMachineName,
             sourceHost: options.SourceHost,
             connectionMethod: options.ConnectionMethod,
             sourceUser: options.SourceUser,
+            sourceAccount: options.SourceAccount,
+            targetAccount: options.TargetAccount,
             sourceRepoRoot: options.SourceRepoRoot,
             targetApps: options.TargetAppNames,
             progressCallback: (percent, message) => UpdateOverallProgress(percent, message));
@@ -365,7 +376,7 @@ public sealed class MigrationController : IDisposable
         UpdateStep(new StepState("restore_local_bundle", "Restore Local Bundle", "Restore the snapshot to the selected targets.", StepStatus.Running, 10, "Restoring bundle"));
         var restoreResult = LocalExporter.RestoreLocalBundle(
             buildResult.ZipPath,
-            destinationHome: options.SourceHome,
+            destinationHome: options.DestinationHome,
             targetApps: options.TargetAppNames,
             progressCallback: (percent, message) => UpdateOverallProgress(percent, message));
         RecordArtifact("local_restore_result", restoreResult);
@@ -430,7 +441,7 @@ public sealed class MigrationController : IDisposable
         var session = BrowserManager.GetSession("edge_original") ?? throw new InvalidOperationException("Edge session not found.");
         try
         {
-            await session.Page.GotoAsync("https://claude.ai/settings", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
+            await session.Page.GotoAsync(BrowserManager.ClaudeDataPrivacyControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
             try
             {
                 await session.Page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 10000 }).ConfigureAwait(false);
@@ -441,7 +452,7 @@ public sealed class MigrationController : IDisposable
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Could not open Claude settings: {ex.Message}", ex);
+            throw new InvalidOperationException($"Could not open Claude data privacy controls: {ex.Message}", ex);
         }
 
         var clicked = await BrowserManager.ClickCandidatesAsync(
@@ -513,22 +524,78 @@ public sealed class MigrationController : IDisposable
         var page = session.Page;
         try
         {
-            await page.GotoAsync("https://claude.ai/settings", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
+            await page.GotoAsync(BrowserManager.ClaudeDataPrivacyControlsUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded }).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Could not open Claude settings in Firefox: {ex.Message}", ex);
+            throw new InvalidOperationException($"Could not open Claude data privacy controls in Firefox: {ex.Message}", ex);
         }
 
-        await BrowserManager.ClickCandidatesAsync(page, new[] { "Memory", "Preferences", "Personalization", "Data" }, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var uploaded = await BrowserManager.SetFirstFileInputAsync(page, PortableResult.MemoryPath, cancellationToken).ConfigureAwait(false);
-        if (uploaded)
+        var opened = await BrowserManager.ClickNthCandidateAsync(page, "Manage", 1, timeoutMs: 15000, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!opened)
         {
-            Log($"Loaded memory JSON into a file input: {PortableResult.MemoryPath}");
+            opened = await BrowserManager.ClickCandidatesAsync(page, new[] { "Manage" }, timeoutMs: 15000, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        if (opened)
+        {
+            Log("Opened the Claude memory import panel.");
+            try
+            {
+                await page.WaitForTimeoutAsync(2000).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
         }
         else
         {
-            Log("No direct memory import control was found. Manual import may be required.", "warning");
+            Log("Could not open the Claude memory import panel. Manual import may be required.", "warning");
+        }
+
+        var started = await BrowserManager.ClickCandidatesAsync(page, new[] { "Start import" }, timeoutMs: 15000, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (started)
+        {
+            Log("Clicked the Claude memory import start button.");
+        }
+        else
+        {
+            Log("No Start import control was found. Manual import may be required.", "warning");
+        }
+
+        try
+        {
+            await page.WaitForTimeoutAsync(2000).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+
+        var memoryDetails = RenderPortableMemoryText(PortableResult.MemoryPath);
+        ILocator memoryDetailsInput = page.GetByPlaceholder("Paste your memory details here");
+        if (await memoryDetailsInput.CountAsync().ConfigureAwait(false) == 0)
+        {
+            memoryDetailsInput = page.Locator("textarea").First;
+        }
+
+        try
+        {
+            await memoryDetailsInput.FillAsync(memoryDetails, new LocatorFillOptions { Timeout = 15000 }).ConfigureAwait(false);
+            Log($"Loaded memory details into the Claude import textarea from {PortableResult.MemoryPath}");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Could not fill the Claude memory import textarea: {ex.Message}", ex);
+        }
+
+        var completed = await BrowserManager.ClickCandidatesAsync(page, new[] { "Add to memory" }, timeoutMs: 15000, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (completed)
+        {
+            Log("Clicked the Claude Add to memory button.");
+        }
+        else
+        {
+            throw new InvalidOperationException("Could not click Add to memory after opening the memory import panel.");
         }
 
         UpdateStep(new StepState("import_memory", "Import Memory to New Account", "Use Firefox to import the prepared memory bundle into the new Claude account.", StepStatus.Done, 100, "Memory import step finished"));
@@ -627,7 +694,7 @@ public sealed class MigrationController : IDisposable
         {
             var item = seedPrompts[index];
             var projectName = ReadValue(item, "project_name") ?? $"Project {index + 1}";
-            var prompt = ReadValue(item, "prompt").Trim();
+            var prompt = (ReadValue(item, "prompt") ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 continue;
@@ -791,5 +858,60 @@ public sealed class MigrationController : IDisposable
             JsonElement element => element.ValueKind == JsonValueKind.String ? element.GetString() ?? string.Empty : element.ToString(),
             _ => value.ToString() ?? string.Empty,
         };
+    }
+
+    private static string RenderPortableMemoryText(string memoryPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(memoryPath, Encoding.UTF8));
+        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        var blocks = items.EnumerateArray()
+            .Select(item =>
+            {
+                var title = item.TryGetProperty("title", out var titleProperty) ? titleProperty.GetString() ?? string.Empty : string.Empty;
+                var text = item.TryGetProperty("text", out var textProperty) ? textProperty.GetString() ?? string.Empty : string.Empty;
+                title = title.Trim();
+                text = text.Trim();
+                if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(text))
+                {
+                    return string.Empty;
+                }
+
+                var lines = new List<string>();
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    lines.Add($"**{title}**");
+                }
+
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    if (lines.Count > 0)
+                    {
+                        lines.Add(string.Empty);
+                    }
+
+                    lines.Add(text);
+                }
+
+                return string.Join(Environment.NewLine, lines).Trim();
+            })
+            .Where(block => !string.IsNullOrWhiteSpace(block))
+            .ToArray();
+
+        return NormalizeMemoryText(string.Join(Environment.NewLine + Environment.NewLine, blocks));
+    }
+
+    private static string NormalizeMemoryText(string text)
+    {
+        return string.Join(
+                "\n",
+                text.Replace("\r\n", "\n", StringComparison.Ordinal)
+                    .Replace("\r", "\n", StringComparison.Ordinal)
+                    .Split('\n')
+                    .Select(line => line.TrimEnd()))
+            .Trim();
     }
 }

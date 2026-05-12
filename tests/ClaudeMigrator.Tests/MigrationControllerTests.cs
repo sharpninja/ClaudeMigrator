@@ -13,6 +13,8 @@ public sealed class MigrationControllerTests
     {
         using var workspace = new TestWorkspace();
         var home = SampleData.CreateSampleLocalHome(workspace.Root);
+        var destinationHome = Path.Combine(workspace.Root, "restore_home");
+        Directory.CreateDirectory(destinationHome);
         var paths = new AppPaths(workspace.Root).Ensure();
         var logs = new List<(string Level, string Message)>();
         var progress = new List<(int Percent, string Message)>();
@@ -33,7 +35,10 @@ public sealed class MigrationControllerTests
             SourceHost = "lab-03.example.com",
             ConnectionMethod = "ssh",
             SourceUser = "kingd",
+            SourceAccount = "source@example.com",
+            TargetAccount = "target@example.com",
             SourceRepoRoot = @"F:\GitHub\ClaudeMigrator",
+            DestinationHome = destinationHome,
             TargetApps = new[] { TargetApp.Claude, TargetApp.Codex },
         });
 
@@ -41,8 +46,11 @@ public sealed class MigrationControllerTests
         Assert.True(File.Exists(controller.StartupSnapshotPath));
         Assert.NotNull(controller.LocalBundleResult);
         Assert.True(File.Exists(controller.LocalBundleResult!.ZipPath));
-        Assert.True(File.Exists(Path.Combine(home, ".claude", "CLAUDE.md")));
-        Assert.True(File.Exists(Path.Combine(home, ".codex", "CLAUDE.md")));
+        Assert.Equal("source@example.com", controller.LocalBundleResult.Manifest["source_account_name"]?.ToString());
+        Assert.Equal("target@example.com", controller.LocalBundleResult.Manifest["target_account_name"]?.ToString());
+        Assert.Equal(destinationHome, controller.LocalBundleResult.Manifest["destination_home"]?.ToString());
+        Assert.True(File.Exists(Path.Combine(destinationHome, ".claude", "CLAUDE.md")));
+        Assert.True(File.Exists(Path.Combine(destinationHome, ".codex", "CLAUDE.md")));
         Assert.Contains(states, state => string.Equals(state, "running", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(states, state => string.Equals(state, "complete", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(progress, item => item.Percent >= 100);

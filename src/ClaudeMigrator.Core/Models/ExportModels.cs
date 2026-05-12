@@ -49,6 +49,7 @@ public sealed record PortableExportResult(
 
 public sealed record LocalBundleResult(
     string SourceHome,
+    string DestinationHome,
     string ProfileRoot,
     string? AccountFile,
     string BundleRoot,

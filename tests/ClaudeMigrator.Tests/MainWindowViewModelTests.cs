@@ -20,9 +20,29 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.TargetClaude);
         Assert.True(viewModel.TargetCodex);
         Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), viewModel.SourceHome);
+        Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), viewModel.DestinationHome);
         Assert.Equal(Environment.MachineName, viewModel.SourceMachineName);
         Assert.Equal(Environment.MachineName, viewModel.SourceHost);
         Assert.Equal(Environment.UserName, viewModel.SourceUser);
+        Assert.Equal(string.Empty, viewModel.SourceAccount);
+        Assert.Equal(string.Empty, viewModel.TargetAccount);
+    }
+
+    [Fact]
+    public void ViewModelCanOpenLogsAndSessionsFolders()
+    {
+        using var workspace = new TestWorkspace();
+        using var controller = new MigrationController(new AppPaths(workspace.Root).Ensure());
+        var openedFolders = new List<string>();
+        var viewModel = new MainWindowViewModel(controller, openedFolders.Add);
+
+        viewModel.OpenLogsFolderCommand.Execute(null);
+        viewModel.OpenSessionsFolderCommand.Execute(null);
+
+        Assert.Collection(
+            openedFolders,
+            path => Assert.Equal(controller.Paths.LogsDir, path),
+            path => Assert.Equal(controller.Paths.SessionsDir, path));
     }
 
     [Fact]
@@ -69,11 +89,13 @@ public sealed class MainWindowViewModelTests
         File.WriteAllText(selectedExport, "zip", System.Text.Encoding.UTF8);
         viewModel.SetSelectedExportZipPath(selectedExport);
         viewModel.SetSourceHomePath(workspace.Root);
+        viewModel.SetDestinationHomePath(workspace.Root);
         viewModel.SetSourceRepoRootPath(workspace.Root);
 
         Assert.Equal(Path.GetFullPath(selectedExport), viewModel.SelectedExportZip);
         Assert.Equal(Path.GetFullPath(selectedExport), controller.SelectedExportZip);
         Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.SourceHome);
+        Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.DestinationHome);
         Assert.Equal(Path.GetFullPath(workspace.Root), viewModel.SourceRepoRoot);
     }
 

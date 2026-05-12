@@ -73,6 +73,89 @@ internal static class SampleData
         return archivePath;
     }
 
+    public static string CreateRichSampleExportZip(string root)
+    {
+        var archivePath = Path.Combine(root, "sample_export_rich.zip");
+        if (File.Exists(archivePath))
+        {
+            File.Delete(archivePath);
+        }
+
+        using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create);
+
+        WriteJson(archive, "conversations/test-chat.json", new
+        {
+            title = "Test Chat",
+            project_name = "Demo Project",
+            id = "conversation-001",
+            messages = new object[]
+            {
+                new { role = "user", text = "Plan the migration." },
+                new { role = "assistant", text = "Use the exporter and retain memory." },
+            },
+        });
+
+        WriteJson(archive, "conversations/migration-retrospective.json", new
+        {
+            name = "Migration Retrospective",
+            project = "Ops Project",
+            thread_id = "conversation-002",
+            turns = new object[]
+            {
+                new { role = "user", content = "Review what was preserved." },
+                new { role = "assistant", content = "Chats, projects, memory, and artifacts were all retained." },
+            },
+        });
+
+        WriteJson(archive, "projects/demo-project.json", new
+        {
+            name = "Demo Project",
+            instructions = "Follow the export test plan.",
+            knowledge = new { notes = "Remember the portable bundle layout." },
+            conversations = new object[]
+            {
+                new { title = "Test Chat" },
+            },
+        });
+
+        WriteJson(archive, "projects/ops-project.json", new
+        {
+            title = "Ops Project",
+            description = "Operational notes for the migration bundle.",
+            notes = new { summary = "Preserve the runtime and import plan." },
+            related_conversations = new object[]
+            {
+                new { title = "Migration Retrospective" },
+            },
+        });
+
+        WriteJson(archive, "memory/project-memory.json", new
+        {
+            title = "Project Memory",
+            content = "Keep the portable export self-contained.",
+        });
+
+        WriteJson(archive, "memory/release-notes.json", new
+        {
+            name = "Release Notes",
+            text = "Bundle every Claude artifact, not just a sample slice.",
+        });
+
+        using (var stream = archive.CreateEntry("broken.json").Open())
+        {
+            var broken = new byte[] { (byte)'{', (byte)'n', (byte)'o', (byte)'t', (byte)' ' };
+            stream.Write(broken, 0, broken.Length);
+        }
+
+        WriteText(archive, "source/code/sample.py", "print('hello from sample')\n");
+        WriteText(archive, "source/code/worker.ts", "export const worker = () => 'ready';\n");
+        WriteText(archive, "source/assets/readme.txt", "not code but present\n");
+        WriteText(archive, "source/scripts/cleanup.ps1", "Write-Host 'cleanup'\n");
+        WriteText(archive, "source/docs/notes.md", "# Notes\nKeep the full archive intact.\n");
+
+        return archivePath;
+    }
+
     public static string CreateSampleLocalHome(string root)
     {
         var home = Path.Combine(root, "home");
@@ -147,13 +230,21 @@ internal static class SampleData
               <div id="status">idle</div>
               <input type="text" id="message" aria-label="message" />
               <textarea id="notes" aria-label="notes"></textarea>
+              <input type="file" id="hidden-upload" aria-label="hidden upload" style="display:none" />
               <input type="file" id="upload" aria-label="upload" />
+              <button id="manage-one" type="button">Manage</button>
+              <button id="manage-two" type="button">Manage</button>
               <button id="export" type="button">Export data</button>
               <button id="send" type="button">Send</button>
               <script>
                 const status = document.getElementById('status');
                 document.getElementById('export').addEventListener('click', () => status.textContent = 'export-clicked');
                 document.getElementById('send').addEventListener('click', () => status.textContent = 'send-clicked');
+                document.getElementById('manage-one').addEventListener('click', () => status.textContent = 'manage-1');
+                document.getElementById('manage-two').addEventListener('click', () => status.textContent = 'manage-2');
+                document.getElementById('hidden-upload').addEventListener('change', (event) => {
+                  status.textContent = 'files:' + event.target.files.length;
+                });
                 document.getElementById('upload').addEventListener('change', (event) => {
                   status.textContent = 'files:' + event.target.files.length;
                 });
