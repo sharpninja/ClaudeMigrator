@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
 jobs:
   ping:
-    runs-on: [self-hosted, Windows, X64, claudemigrator]
+    runs-on: self-hosted
     steps:
-      - run: echo "hello from $env:RUNNER_NAME"
+      - run: echo hello
+        shell: pwsh
