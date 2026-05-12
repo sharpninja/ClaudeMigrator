@@ -75,6 +75,13 @@ public sealed class LocalAgentSessionsMigrator
                 continue;
             }
 
+            if (IsReparsePoint(sourceFile))
+            {
+                skipped++;
+                _log($"skipped symlink {relative}");
+                continue;
+            }
+
             var destination = Path.Combine(targetDir, relative);
 
             try
@@ -132,6 +139,18 @@ public sealed class LocalAgentSessionsMigrator
             FailedFileCount: failed,
             TotalBytesCopied: totalBytes,
             FailedRelativePaths: failures);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool IsRpmPath(string relativePath)
